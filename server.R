@@ -2,6 +2,7 @@ library(shiny)
 library(ggplot2)
 library(dplyr)
 library(lubridate)
+library(purrr)
 library(lastfmr)
 
 shinyServer(function(input, output) {
@@ -9,28 +10,27 @@ shinyServer(function(input, output) {
   tracks <- reactive({
     username <- input$username
     
-    n <- user_getRecentTracks(username)$'@attr'$totalPages
-    recents <- data.frame()
-    for (i in 1:n) {
-      x <- user_getRecentTracks(username, page = i)$track
-      x$image <- NULL
-      recents <- rbind(recents, do.call(cbind.data.frame, c(x, stringsAsFactors = F)), stringsAsFactors = F)
-    }
+    n <- attr(user_getRecentTracks(username), "totalPages")
+    recents <-map2_df(username, seq_len(n), function(user, i) {
+      user_getRecentTracks(user, page = i)
+    })
     
     recents$date <- recents$`date.#text`
     recents$artist <- recents$`artist.#text`
     recents$track <- recents$name
     recents$album <- recents$`album.#text`
     
-    recents <- subset(recents, 
-                      subset = !is.na(date), 
-                      select = c(date, track, artist, album))
+    recents <- subset(
+      recents, 
+      subset = !is.na(date), 
+      select = c(date, track, artist, album)
+    )
     
     recents
   })
   
   output$distUser <- renderPrint({
-    user_getInfo(input$username)
+    as.list(user_getInfo(input$username))
   })
   
   output$distTopAlbum <- renderPlot({
@@ -74,6 +74,16 @@ shinyServer(function(input, output) {
       geom_bar(stat = "identity", fill = "skyblue3") + 
       geom_label(aes(label = n)) + 
       labs(x = "Hour", y = "Count")
+  })
+  
+  output$distWday <- renderPlot({
+    tracks() %>% 
+      mutate(wday = wday(dmy_hm(date), label = T)) %>% 
+      count(wday) %>%
+      ggplot(aes(x = wday, y = n)) + 
+      geom_bar(stat = "identity", fill = "skyblue3") + 
+      geom_label(aes(label = n)) + 
+      labs(x = "Weekday", y = "Count")
   })
   
   output$distTable <- renderDataTable({tracks()})
